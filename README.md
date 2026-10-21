@@ -6,6 +6,30 @@ používajících Strava.cz.
 Integrace vychází z knihovny:
 https://github.com/jsem-nerad/strava-cz-python
 
+> **Osobní fork.** Tato kopie je upravená pro vlastní potřebu rodiny a je veřejná jen proto,
+> že HACS neumí instalovat ze soukromých repozitářů. Není určená k doporučování ani
+> k obecnému použití, nenabízí podporu a nemusí se aktualizovat. Používáš ji na vlastní
+> riziko (viz GPL-3.0, bez záruky). Chceš-li stabilní integraci, použij originál od
+> @petr-michal: https://github.com/petr-michal/homeassistant-strava-cz
+
+## Tato verze (0.2.4, „detailed“)
+
+Upravená kopie integrace od @petr-michal (licence GPL-3.0). Přidává:
+
+- **Rozbor jídla po chodech a surovinách.** U hlavních jídel s alergenem 03 (vejce),
+  04 (ryby) nebo 07 (mléko) načte detail ze Strava.cz (`orderModalDetails`) a v atributech
+  týdenního jídelníčku přidá `vegan` a `rozbor` (např. „vegan, ale salát se sýrem (07)“).
+  Salát, sýr jako posyp a polévka oběd neblokují, jen se vypíšou. Detail se načítá jednou
+  a drží se v paměti, jen pro vybrané děti a na nejbližší tři týdny.
+- **Jídelníček příští týden** (nový senzor `Jídelníček příští týden`).
+- **Objednávání přesnídávky a svačiny** (jídla typu `unknown`, např. školka) přes stejný výběr.
+- **Kratší interval aktualizace**: 15 minut místo hodiny.
+
+Instalace přes HACS: HACS → ⋮ → Vlastní repozitáře → adresa tohoto repozitáře, kategorie
+Integrace. Původní integraci Strava.cz v HACS nejdřív odstraň (nastavení účtů zůstane).
+
+Původní popis integrace:
+
 ## Verze 0.2.3
 
 Verze 0.2.3 přidává srozumitelnou výchozí volbu do ovládacích prvků pro objednání a zrušení oběda. Verze 0.2.2 přidala týdenní jídelníček pro celý pracovní týden. Zachovává také opravené popisky výběru přihlášení a číslo jídelny u zařízení.\n\nIntegrace podporuje dva způsoby přihlášení:
@@ -70,9 +94,11 @@ zkopíruj do:
 
 a restartuj Home Assistant.
 
-Pro HACS použij repozitář:
+Pro HACS (vlastní repozitář, kategorie Integrace) použij tento repozitář:
 
-https://github.com/petr-michal/homeassistant-strava-cz
+https://github.com/kocna/homeassistant-strava-cz-detailed
+
+Původní (neupravená) integrace je zde: https://github.com/petr-michal/homeassistant-strava-cz
 
 ## Licence
 

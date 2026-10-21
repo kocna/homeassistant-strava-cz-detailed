@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .coordinator import StravaCZCoordinator
+from .detail import vegan_summary
 from .entity import StravaCZEntity
 
 
@@ -34,6 +35,7 @@ async def async_setup_entry(
                 ),
                 StravaCZNextOrderedSensor(coordinator, child_key),
                 StravaCZWeekMenuSensor(coordinator, child_key),
+                StravaCZNextWeekMenuSensor(coordinator, child_key),
             ]
         )
 
@@ -177,6 +179,20 @@ class StravaCZWeekMenuSensor(StravaCZEntity, SensorEntity):
             if start_iso <= day.get("date", "") <= end_iso
         ]
 
+    def _vegan_fields(self, day: dict[str, Any], meal: dict[str, Any]) -> dict[str, Any]:
+        """Rozbor veganství z detailu jídla (jen u hlavních jídel, pokud ho máme)."""
+        if meal.get("type") != "main":
+            return {}
+        detail = self.coordinator.detail_for(
+            self.child_key, meal.get("date"), meal.get("variant"), meal.get("name")
+        )
+        if not detail or not detail.get("courses"):
+            return {}
+        soup = next((m for m in day.get("meals", []) if m.get("type") == "soup"), None)
+        soup_codes = [a.get("code") for a in soup.get("allergens", [])] if soup else []
+        summary = vegan_summary(detail, soup_allergens=soup_codes)
+        return {"vegan": summary["ok"], "rozbor": summary["label"]}
+
     @property
     def native_value(self) -> str:
         start, end = self._bounds()
@@ -205,6 +221,7 @@ class StravaCZWeekMenuSensor(StravaCZEntity, SensorEntity):
                             for allergen in meal.get("allergens", [])
                         ],
                         "uzávěrka": meal.get("deadline"),
+                        **self._vegan_fields(day, meal),
                     }
                 )
 
@@ -222,6 +239,26 @@ class StravaCZWeekMenuSensor(StravaCZEntity, SensorEntity):
             "do": end.isoformat(),
             "dny": days,
         }
+
+
+class StravaCZNextWeekMenuSensor(StravaCZWeekMenuSensor):
+    """Menu of the following school week (always the week after the current one)."""
+
+    _attr_name = "Jídelníček příští týden"
+
+    def __init__(self, coordinator: StravaCZCoordinator, child_key: str) -> None:
+        super().__init__(coordinator, child_key)
+        self._attr_unique_id = self.make_unique_id("next_week_menu")
+
+    @staticmethod
+    def _bounds():
+        today = dt_util.now().date()
+        if today.weekday() >= 5:
+            base = today + timedelta(days=7 - today.weekday())
+        else:
+            base = today - timedelta(days=today.weekday())
+        start = base + timedelta(days=7)
+        return start, start + timedelta(days=4)
 
 
 class StravaCZNextOrderedSensor(StravaCZEntity, SensorEntity):

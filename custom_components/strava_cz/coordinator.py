@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Mapping
+from datetime import date, timedelta
 from typing import Any
 
 from strava_cz import AuthenticationError, StravaCZ, StravaError
@@ -27,6 +28,7 @@ from .const import (
     DOMAIN,
     LEGACY_CHILD_KEY,
 )
+from .detail import BLOCKING, build_payload, parse_detail
 from .personal import (
     PersonalCanteenAccount,
     canteen_login,
@@ -36,6 +38,12 @@ from .personal import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Rozbor jídla po chodech a surovinách (Strava.cz orderModalDetails).
+# Načítá se jen pro hlavní jídla s alergenem 03/04/07 na nejbližších pár týdnů.
+DETAIL_SKIP_NAMES: tuple[str, ...] = ()   # jména dětí, pro které se rozbor nenačítá (volitelné)
+DETAIL_DAYS_AHEAD = 21
+DETAIL_MAX_PER_REFRESH = 25
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -65,6 +73,7 @@ class StravaCZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._personal_sid: str | None = None
         self._personal_children: dict[str, StravaCZ] = {}
         self._s5url_cache: dict[str, str] = {}
+        self._detail_cache: dict[tuple, dict[str, Any]] = {}
 
         self._accounts = [
             PersonalCanteenAccount.from_dict(item)
@@ -228,6 +237,10 @@ class StravaCZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "deadline": (
                             meal.deadline.isoformat() if meal.deadline is not None else None
                         ),
+                        "druh": meal.raw.get("druh"),
+                        "menu_no": meal.raw.get("cislojidelnicku")
+                        or meal.raw.get("cisloJidelnicku")
+                        or "1",
                     }
                 )
 
@@ -257,6 +270,60 @@ class StravaCZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "days": days,
         }
 
+    def _enrich_details(
+        self, child_key: str, client: StravaCZ, snapshot: dict[str, Any]
+    ) -> None:
+        """Doplní do cache rozbor jídel (chody a suroviny). Nikdy nevyhodí chybu."""
+        try:
+            full_name = str(snapshot.get("user", {}).get("full_name") or "").lower()
+            if any(n in full_name or n in str(child_key).lower() for n in DETAIL_SKIP_NAMES):
+                return
+            today = date.today().isoformat()
+            limit = (date.today() + timedelta(days=DETAIL_DAYS_AHEAD)).isoformat()
+            self._detail_cache = {
+                k: v for k, v in self._detail_cache.items() if k[1] >= today
+            }
+            fetched = 0
+            for day in snapshot.get("days", []):
+                if day["date"] < today or day["date"] > limit or day.get("no_school"):
+                    continue
+                for meal in day.get("meals", []):
+                    if meal.get("type") != "main":
+                        continue
+                    codes = {a["code"] for a in meal.get("allergens", [])}
+                    if not codes & set(BLOCKING):
+                        continue
+                    key = (child_key, meal["date"], meal["variant"], meal["name"])
+                    if key in self._detail_cache:
+                        continue
+                    if fetched >= DETAIL_MAX_PER_REFRESH:
+                        return
+                    fetched += 1
+                    try:
+                        response = client._request(  # noqa: SLF001
+                            "orderModalDetails",
+                            build_payload(
+                                client.user,
+                                "CZ",
+                                meal["id"],
+                                meal["date"],
+                                meal.get("druh") or "",
+                                meal.get("menu_no") or "1",
+                            ),
+                            authenticated=True,
+                        )
+                        self._detail_cache[key] = parse_detail(response)
+                    except StravaError as err:
+                        _LOGGER.debug("Detail jídla %s se nepodařilo načíst: %s", key, err)
+        except Exception:  # noqa: BLE001 - rozbor je doplněk, nesmí rozbít aktualizaci
+            _LOGGER.debug("Načtení rozboru jídel selhalo", exc_info=True)
+
+    def detail_for(
+        self, child_key: str, day: str, variant: str, name: str
+    ) -> dict[str, Any] | None:
+        """Rozbor jídla z cache, nebo None, pokud ho nemáme."""
+        return self._detail_cache.get((child_key, day, variant, name))
+
     def _fetch_legacy(self) -> dict[str, Any]:
         client = self._ensure_legacy_client()
         try:
@@ -266,14 +333,18 @@ class StravaCZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             client = self._ensure_legacy_client()
             client.menu.fetch()
 
-        return {"children": {LEGACY_CHILD_KEY: self._snapshot(client)}}
+        snapshot = self._snapshot(client)
+        self._enrich_details(LEGACY_CHILD_KEY, client, snapshot)
+        return {"children": {LEGACY_CHILD_KEY: snapshot}}
 
     def _fetch_personal(self) -> dict[str, Any]:
         children: dict[str, Any] = {}
         for account in self._accounts:
             child = self._activate_personal_child_with_retry(account)
             child.menu.fetch()
-            children[account.key] = self._snapshot(child)
+            snapshot = self._snapshot(child)
+            self._enrich_details(account.key, child, snapshot)
+            children[account.key] = snapshot
         return {"children": children}
 
     def _fetch_sync(self) -> dict[str, Any]:

@@ -15,6 +15,11 @@ from .entity import StravaCZEntity
 
 PLACEHOLDER_OPTION = "— Vyberte oběd —"
 
+# "main" = hlavní jídlo (Oběd 1 / Oběd 2 / Oběd MŠ).
+# "unknown" = přesnídávka a svačina ve školce (mají vlastní id a typ "unknown").
+# Polévky ("soup") se neobjednávají samostatně.
+ORDERABLE_TYPES = ("main", "unknown")
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -69,7 +74,7 @@ class StravaCZMealActionSelect(StravaCZEntity, SelectEntity):
             if day.get("date", "") < today:
                 continue
             for meal in day.get("meals", []):
-                if meal.get("type") != "main":
+                if meal.get("type") not in ORDERABLE_TYPES:
                     continue
 
                 if self._order:

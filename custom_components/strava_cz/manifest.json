@@ -2,18 +2,19 @@
   "domain": "strava_cz",
   "name": "Strava.cz",
   "codeowners": [
-    "@petr-michal"
+    "@petr-michal",
+    "@kocna"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/petr-michal/homeassistant-strava-cz",
+  "documentation": "https://github.com/kocna/homeassistant-strava-cz-detailed",
   "integration_type": "service",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/petr-michal/homeassistant-strava-cz/issues",
+  "issue_tracker": "https://github.com/kocna/homeassistant-strava-cz-detailed/issues",
   "loggers": [
     "strava_cz"
   ],
   "requirements": [
     "strava-cz==0.4.0"
   ],
-  "version": "0.2.3"
+  "version": "0.2.4"
 }
