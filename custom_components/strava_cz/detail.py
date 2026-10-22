@@ -78,6 +78,15 @@ def is_side(course_name: str) -> bool:
     return "salát" in course_name.lower()
 
 
+_BREAD = ("rohlík", "rohlik", "chléb", "chleb", "pečivo", "pecivo", "houska", "bulka", "kaiserka")
+
+
+def is_bread(course_name: str) -> bool:
+    """Pečivo (rohlík, chléb): nepovinná příloha, dítě si ho nemusí vzít."""
+    n = course_name.lower()
+    return any(w in n for w in _BREAD)
+
+
 def _is_topping(ingredient: str) -> bool:
     n = ingredient.lower()
     return any(w in n for w in _TOPPING)
@@ -105,6 +114,8 @@ def vegan_summary(detail: dict, soup_allergens=(), blocking=BLOCKING) -> dict:
         if is_side(c["name"]):
             ing = ", ".join(i["name"] for i in bad_ings)
             notes.append(f"salát s {ing.lower() if ing else _what(bad)} ({', '.join(bad)})".replace("s sýr cihla", "se sýrem"))
+        elif is_bread(c["name"]):
+            notes.append(f"{c['name']} ({', '.join(bad)}), pečivo lze vynechat")
         elif bad_ings and all(_is_topping(i["name"]) for i in bad_ings):
             notes.append(f"{', '.join(i['name'] for i in bad_ings)} jako posyp/přísada ({', '.join(bad)}), lze vynechat")
         else:
