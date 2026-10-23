@@ -23,6 +23,9 @@ async def async_setup_entry(
     coordinator: StravaCZCoordinator = entry.runtime_data
     entities: list[SensorEntity] = []
 
+    if coordinator.child_keys:
+        entities.append(StravaCZStatusSensor(coordinator, coordinator.child_keys[0]))
+
     for child_key in coordinator.child_keys:
         entities.extend(
             [
@@ -53,6 +56,30 @@ def _main_meals(day: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not day:
         return []
     return [meal for meal in day.get("meals", []) if meal.get("type") == "main"]
+
+
+class StravaCZStatusSensor(StravaCZEntity, SensorEntity):
+    """Stav posledního obnovení dat (OK / Chyba) a čas posledního úspěchu."""
+
+    _attr_name = "Stav obnovení dat"
+    _attr_icon = "mdi:cloud-sync"
+
+    def __init__(self, coordinator: StravaCZCoordinator, child_key: str) -> None:
+        super().__init__(coordinator, child_key)
+        self._attr_unique_id = self.make_unique_id("status")
+
+    @property
+    def native_value(self) -> str:
+        return "OK" if self.coordinator.last_error is None else "Chyba"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        ok = self.coordinator.last_success
+        return {
+            "poslední_úspěch": ok.isoformat() if ok else None,
+            "poslední_úspěch_text": ok.strftime("%-d.%-m. %H:%M") if ok else None,
+            "chyba": self.coordinator.last_error,
+        }
 
 
 class StravaCZBalanceSensor(StravaCZEntity, SensorEntity):

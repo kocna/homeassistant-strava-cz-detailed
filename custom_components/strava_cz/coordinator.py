@@ -16,6 +16,7 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ACCOUNT_TYPE_CANTEEN,
@@ -66,6 +67,8 @@ class StravaCZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.entry = entry
         self.account_type = entry.data.get(CONF_ACCOUNT_TYPE, ACCOUNT_TYPE_CANTEEN)
         self._io_lock = asyncio.Lock()
+        self.last_success = None
+        self.last_error: str | None = None
 
         self._legacy_client: StravaCZ | None = None
 
@@ -353,13 +356,26 @@ class StravaCZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._fetch_legacy()
 
     async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch data; on any failure keep the last known data and remember the error."""
         async with self._io_lock:
             try:
-                return await self.hass.async_add_executor_job(self._fetch_sync)
+                data = await self.hass.async_add_executor_job(self._fetch_sync)
             except AuthenticationError as err:
+                self.last_error = f"přihlášení selhalo: {err}"
+                if self.data:
+                    _LOGGER.warning("Strava.cz: %s, ponechávám poslední známá data", self.last_error)
+                    self.entry.async_start_reauth(self.hass)
+                    return self.data
                 raise ConfigEntryAuthFailed("Strava.cz authentication failed") from err
-            except StravaError as err:
+            except Exception as err:  # noqa: BLE001 - jakékoli selhání nesmí smazat data
+                self.last_error = str(err)
+                if self.data:
+                    _LOGGER.warning("Strava.cz: obnovení selhalo (%s), ponechávám poslední známá data", err)
+                    return self.data
                 raise UpdateFailed(f"Strava.cz update failed: {err}") from err
+            self.last_success = dt_util.now()
+            self.last_error = None
+            return data
 
     # ------------------------------------------------------------------- actions
 
